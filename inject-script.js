@@ -168,6 +168,7 @@
   const os = require?.('os');
   const { shell } = require?.('electron') || {};
   const { nativeImage } = require?.('electron') || {};
+  const { exec } = require?.('child_process') || {};
   
   if (!fs || !shell) {
     console.warn('⚠️ Electron API not available - file features disabled');
@@ -177,6 +178,7 @@
   const downloadDir = path.join(os.homedir(), 'Downloads');
   const openedFiles = new Set();
   const timers = new Map();
+  const pdfCache = new Map(); // Cache for PDF thumbnails
   
   // File type configurations
   const FILE_TYPES = {
@@ -268,6 +270,74 @@
         stableCount = 0;
       }
     }, 500);
+  }
+  
+  // ==========================================
+  // PDF THUMBNAIL GENERATOR
+  // ==========================================
+  
+  function generatePDFThumbnail(pdfPath, callback) {
+    // Check cache first
+    if (pdfCache.has(pdfPath)) {
+      callback(pdfCache.get(pdfPath));
+      return;
+    }
+    
+    if (!exec) {
+      console.warn('⚠️ exec not available - PDF preview disabled');
+      callback(null);
+      return;
+    }
+    
+    const tempDir = os.tmpdir();
+    const outputPrefix = path.join(tempDir, `pdf_thumb_${Date.now()}`);
+    
+    // Use pdftoppm to convert first page to PNG
+    const cmd = `pdftoppm -png -f 1 -l 1 -scale-to 800 "${pdfPath}" "${outputPrefix}"`;
+    
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        console.warn('⚠️ PDF preview failed:', error.message);
+        callback(null);
+        return;
+      }
+      
+      // Find generated PNG file
+      const generatedFile = `${outputPrefix}-1.png`;
+      
+      if (!fs.existsSync(generatedFile)) {
+        console.warn('⚠️ PDF thumbnail not generated');
+        callback(null);
+        return;
+      }
+      
+      try {
+        // Read the generated PNG
+        const imageData = fs.readFileSync(generatedFile);
+        const image = nativeImage.createFromBuffer(imageData);
+        
+        if (!image.isEmpty()) {
+          const dataURL = image.toDataURL();
+          // Cache the result
+          pdfCache.set(pdfPath, dataURL);
+          callback(dataURL);
+        } else {
+          callback(null);
+        }
+        
+        // Clean up temp file
+        fs.unlinkSync(generatedFile);
+      } catch (e) {
+        console.error('❌ Failed to process PDF thumbnail:', e);
+        callback(null);
+        // Try to clean up
+        try {
+          if (fs.existsSync(generatedFile)) {
+            fs.unlinkSync(generatedFile);
+          }
+        } catch {}
+      }
+    });
   }
   
   // ==========================================
@@ -529,6 +599,29 @@
         transform: scale(0.95);
       }
       
+      /* Loading spinner for PDF generation */
+      .wa-file-preview-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        min-height: 300px;
+      }
+      
+      .wa-file-preview-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(255, 255, 255, 0.2);
+        border-top-color: rgba(255, 255, 255, 0.8);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      
       /* Dark mode specific adjustments */
       [data-wa-theme="dark"] .wa-file-preview-thumbnail-container:not(.has-image) {
         background: linear-gradient(135deg, #4c51bf 0%, #6b46c1 100%);
@@ -563,6 +656,7 @@
     
     let thumbnailHTML = '';
     let hasImage = false;
+    let isPDF = fileType.type === 'document' && fileInfo.path.toLowerCase().endsWith('.pdf');
     
     // Generate thumbnail for images
     if (fileType.type === 'image' && nativeImage) {
@@ -582,8 +676,22 @@
       }
     }
     
-    // If no image, show icon with gradient background
-    if (!hasImage) {
+    // Handle PDF with loading state
+    if (isPDF && !hasImage) {
+      thumbnailHTML = `
+        <div class="wa-file-preview-thumbnail-container" id="pdf-thumbnail-container">
+          <div class="wa-file-preview-loading">
+            <div class="wa-file-preview-spinner"></div>
+            <div style="margin-top: 16px; font-size: 14px; color: rgba(255,255,255,0.9);">
+              Generating PDF preview...
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    // If no image and not PDF, show icon with gradient background
+    if (!hasImage && !isPDF) {
       const gradients = {
         document: 'linear-gradient(135deg, #EA4335 0%, #FF6B6B 100%)',
         spreadsheet: 'linear-gradient(135deg, #34A853 0%, #4CAF50 100%)',
@@ -671,6 +779,29 @@
     container.appendChild(content);
     overlay.appendChild(closeBtn);
     overlay.appendChild(container);
+    
+    // Generate PDF thumbnail after overlay is added to DOM
+    if (isPDF) {
+      generatePDFThumbnail(fileInfo.path, (dataURL) => {
+        const thumbnailContainer = document.getElementById('pdf-thumbnail-container');
+        if (thumbnailContainer) {
+          if (dataURL) {
+            thumbnailContainer.className = 'wa-file-preview-thumbnail-container has-image';
+            thumbnailContainer.innerHTML = `
+              <img src="${dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name}">
+            `;
+          } else {
+            // Fallback to icon if PDF generation failed
+            thumbnailContainer.style.background = currentTheme === 'dark' ? 
+              'linear-gradient(135deg, #DC2626 0%, #EF4444 100%)' :
+              'linear-gradient(135deg, #EA4335 0%, #FF6B6B 100%)';
+            thumbnailContainer.innerHTML = `
+              <div class="wa-file-preview-icon-large">📄</div>
+            `;
+          }
+        }
+      });
+    }
     
     // Event handlers
     content.querySelector('[data-action="open"]').onclick = () => {
