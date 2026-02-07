@@ -2,7 +2,135 @@
   console.log('🚀 WhatsApp Inject Script Loaded');
   
   // ==========================================
-  // 1. NOTIFICATION
+  // 1. DARK MODE DETECTION & SYNC
+  // ==========================================
+  
+  let currentTheme = 'light';
+  let systemTheme = 'light';
+  
+  function detectSystemTheme() {
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark';
+    }
+    return 'light';
+  }
+  
+  function detectWhatsAppTheme() {
+    // Method 1: Check body/html class
+    if (document.body.classList.contains('dark') || 
+        document.documentElement.classList.contains('dark')) {
+      return 'dark';
+    }
+    
+    // Method 2: Check specific WhatsApp dark mode classes
+    const darkModeSelectors = [
+      '[data-theme="dark"]',
+      '.dark-mode',
+      '.theme-dark',
+      'body.dark'
+    ];
+    
+    for (const selector of darkModeSelectors) {
+      if (document.querySelector(selector)) {
+        return 'dark';
+      }
+    }
+    
+    // Method 3: Check background color of main container
+    const mainContainers = [
+      '#app',
+      '[data-testid="app-wrapper"]',
+      '.app-wrapper-web',
+      'body'
+    ];
+    
+    for (const selector of mainContainers) {
+      const element = document.querySelector(selector);
+      if (element) {
+        const bgColor = window.getComputedStyle(element).backgroundColor;
+        // Parse RGB
+        const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+        if (match) {
+          const r = parseInt(match[1]);
+          const g = parseInt(match[2]);
+          const b = parseInt(match[3]);
+          // Calculate luminance
+          const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
+          if (luminance < 128) {
+            return 'dark';
+          }
+        }
+      }
+    }
+    
+    return 'light';
+  }
+  
+  function applyTheme(theme) {
+    if (currentTheme === theme) return;
+    
+    currentTheme = theme;
+    document.documentElement.setAttribute('data-wa-theme', theme);
+    
+    console.log('🎨 Theme applied:', theme);
+    
+    // Trigger custom event for other components
+    window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
+  }
+  
+  function checkAndApplyTheme() {
+    const waTheme = detectWhatsAppTheme();
+    applyTheme(waTheme);
+  }
+  
+  // Watch for system theme changes
+  if (window.matchMedia) {
+    const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    darkModeQuery.addListener((e) => {
+      systemTheme = e.matches ? 'dark' : 'light';
+      console.log('🌓 System theme changed:', systemTheme);
+      checkAndApplyTheme();
+    });
+    systemTheme = detectSystemTheme();
+  }
+  
+  // Watch for WhatsApp theme changes
+  const themeObserver = new MutationObserver(() => {
+    checkAndApplyTheme();
+  });
+  
+  // Observe body and html for class/attribute changes
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class', 'data-theme', 'style']
+  });
+  
+  if (document.body) {
+    themeObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme', 'style']
+    });
+  }
+  
+  // Also observe #app container
+  const observeApp = setInterval(() => {
+    const app = document.querySelector('#app');
+    if (app) {
+      themeObserver.observe(app, {
+        attributes: true,
+        subtree: true,
+        attributeFilter: ['class', 'data-theme', 'style']
+      });
+      clearInterval(observeApp);
+    }
+  }, 500);
+  
+  // Initial theme detection
+  setTimeout(checkAndApplyTheme, 1000);
+  setInterval(checkAndApplyTheme, 5000); // Recheck every 5 seconds
+  
+  // ==========================================
+  // 2. NOTIFICATION
   // ==========================================
   const OriginalNotification = window.Notification;
   let notificationCount = 0;
@@ -31,7 +159,7 @@
   window.Notification.requestPermission = OriginalNotification.requestPermission.bind(OriginalNotification);
   
   // ==========================================
-  // 2. FILE PREVIEW SYSTEM
+  // 3. FILE PREVIEW SYSTEM
   // ==========================================
   
   // Check if Electron APIs are available
@@ -143,7 +271,7 @@
   }
   
   // ==========================================
-  // 3. FILE PREVIEW UI INJECTION
+  // 4. FILE PREVIEW UI INJECTION (DARK MODE)
   // ==========================================
   
   function injectPreviewStyles() {
@@ -152,13 +280,43 @@
     const style = document.createElement('style');
     style.id = 'whatsapp-preview-styles';
     style.textContent = `
+      /* Light Mode Variables */
+      :root {
+        --overlay-bg: rgba(0, 0, 0, 0.85);
+        --container-bg: #1f2937;
+        --content-bg: #ffffff;
+        --header-border: #f3f4f6;
+        --text-primary: #1f2937;
+        --text-secondary: #6b7280;
+        --close-btn-bg: rgba(255, 255, 255, 0.2);
+        --close-btn-hover: rgba(255, 255, 255, 0.3);
+        --btn-secondary-bg: #f3f4f6;
+        --btn-secondary-hover: #e5e7eb;
+        --thumbnail-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+      
+      /* Dark Mode Variables */
+      [data-wa-theme="dark"] {
+        --overlay-bg: rgba(0, 0, 0, 0.95);
+        --container-bg: #0b141a;
+        --content-bg: #1f2937;
+        --header-border: #374151;
+        --text-primary: #f3f4f6;
+        --text-secondary: #9ca3af;
+        --close-btn-bg: rgba(255, 255, 255, 0.1);
+        --close-btn-hover: rgba(255, 255, 255, 0.2);
+        --btn-secondary-bg: #374151;
+        --btn-secondary-hover: #4b5563;
+        --thumbnail-bg: linear-gradient(135deg, #4c51bf 0%, #6b46c1 100%);
+      }
+      
       .wa-file-preview-overlay {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0, 0, 0, 0.85);
+        background: var(--overlay-bg);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -184,7 +342,7 @@
       }
       
       .wa-file-preview-container {
-        background: #1f2937;
+        background: var(--container-bg);
         border-radius: 20px;
         padding: 0;
         max-width: 600px;
@@ -192,24 +350,27 @@
         box-shadow: 0 25px 80px rgba(0, 0, 0, 0.7);
         animation: slideUp 0.3s ease-out;
         overflow: hidden;
+        transition: background 0.3s ease;
       }
       
       .wa-file-preview-content {
-        background: white;
+        background: var(--content-bg);
         border-radius: 16px;
         margin: 4px;
+        transition: background 0.3s ease;
       }
       
       .wa-file-preview-thumbnail-container {
         width: 100%;
         min-height: 300px;
         max-height: 400px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: var(--thumbnail-bg);
         display: flex;
         align-items: center;
         justify-content: center;
         position: relative;
         overflow: hidden;
+        transition: background 0.3s ease;
       }
       
       .wa-file-preview-thumbnail-container.has-image {
@@ -236,24 +397,28 @@
       
       .wa-file-preview-header {
         padding: 20px 24px;
-        border-bottom: 1px solid #f3f4f6;
+        border-bottom: 1px solid var(--header-border);
+        transition: border-color 0.3s ease;
       }
       
       .wa-file-preview-name {
         font-size: 18px;
         font-weight: 600;
-        color: #1f2937;
+        color: var(--text-primary);
         margin-bottom: 8px;
         line-height: 1.4;
         word-break: break-word;
+        transition: color 0.3s ease;
       }
       
       .wa-file-preview-meta {
         display: flex;
         gap: 12px;
         font-size: 14px;
-        color: #6b7280;
+        color: var(--text-secondary);
         align-items: center;
+        flex-wrap: wrap;
+        transition: color 0.3s ease;
       }
       
       .wa-file-preview-meta-item {
@@ -312,12 +477,13 @@
       }
       
       .wa-file-preview-btn-secondary {
-        background: #f3f4f6;
-        color: #1f2937;
+        background: var(--btn-secondary-bg);
+        color: var(--text-primary);
+        transition: all 0.2s, background 0.3s ease, color 0.3s ease;
       }
       
       .wa-file-preview-btn-secondary:hover {
-        background: #e5e7eb;
+        background: var(--btn-secondary-hover);
         transform: translateY(-1px);
       }
       
@@ -328,9 +494,10 @@
         width: 40px;
         height: 40px;
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.2);
+        background: var(--close-btn-bg);
         border: none;
         cursor: pointer;
+        transition: all 0.2s, background 0.3s ease;
       }
 
       .wa-file-preview-close::before,
@@ -352,15 +519,31 @@
       .wa-file-preview-close::after {
         transform: translate(-50%, -50%) rotate(-45deg);
       }
-
       
       .wa-file-preview-close:hover {
-        background: rgba(255, 255, 255, 0.3);
+        background: var(--close-btn-hover);
         transform: scale(1.1);
       }
       
       .wa-file-preview-close:active {
         transform: scale(0.95);
+      }
+      
+      /* Dark mode specific adjustments */
+      [data-wa-theme="dark"] .wa-file-preview-thumbnail-container:not(.has-image) {
+        background: linear-gradient(135deg, #4c51bf 0%, #6b46c1 100%);
+      }
+      
+      /* Smooth transitions for theme changes */
+      .wa-file-preview-overlay,
+      .wa-file-preview-container,
+      .wa-file-preview-content,
+      .wa-file-preview-header,
+      .wa-file-preview-name,
+      .wa-file-preview-meta,
+      .wa-file-preview-btn-secondary,
+      .wa-file-preview-close {
+        transition: all 0.3s ease;
       }
     `;
     document.head.appendChild(style);
@@ -409,11 +592,28 @@
         image: 'linear-gradient(135deg, #9C27B0 0%, #BA68C8 100%)',
         video: 'linear-gradient(135deg, #E91E63 0%, #F06292 100%)',
         audio: 'linear-gradient(135deg, #FF9800 0%, #FFB74D 100%)',
+        database: 'linear-gradient(135deg, #607D8B 0%, #90A4AE 100%)',
         unknown: 'linear-gradient(135deg, #757575 0%, #9E9E9E 100%)'
       };
       
+      // Adjust for dark mode
+      const isDark = currentTheme === 'dark';
+      const darkGradients = {
+        document: 'linear-gradient(135deg, #DC2626 0%, #EF4444 100%)',
+        spreadsheet: 'linear-gradient(135deg, #16A34A 0%, #22C55E 100%)',
+        presentation: 'linear-gradient(135deg, #D97706 0%, #F59E0B 100%)',
+        archive: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
+        image: 'linear-gradient(135deg, #7C3AED 0%, #8B5CF6 100%)',
+        video: 'linear-gradient(135deg, #DB2777 0%, #EC4899 100%)',
+        audio: 'linear-gradient(135deg, #EA580C 0%, #F97316 100%)',
+        database: 'linear-gradient(135deg, #475569 0%, #64748B 100%)',
+        unknown: 'linear-gradient(135deg, #52525B 0%, #71717A 100%)'
+      };
+      
+      const gradient = isDark ? darkGradients[fileType.type] || darkGradients.unknown : gradients[fileType.type] || gradients.unknown;
+      
       thumbnailHTML = `
-        <div class="wa-file-preview-thumbnail-container" style="background: ${gradients[fileType.type] || gradients.unknown}">
+        <div class="wa-file-preview-thumbnail-container" style="background: ${gradient}">
           <div class="wa-file-preview-icon-large">${fileType.icon}</div>
         </div>
       `;
@@ -465,7 +665,6 @@
     
     const closeBtn = document.createElement('button');
     closeBtn.className = 'wa-file-preview-close';
-    closeBtn.textContent = '×';
     closeBtn.setAttribute('aria-label', 'Close preview');
     closeBtn.onclick = () => overlay.remove();
     
@@ -522,7 +721,7 @@
   }
   
   // ==========================================
-  // 4. FILE DOWNLOAD WATCHER
+  // 5. FILE DOWNLOAD WATCHER
   // ==========================================
   
   try {
@@ -564,7 +763,7 @@
   }
   
   // ==========================================
-  // 5. CUSTOM FILE ATTACHMENT
+  // 6. CUSTOM FILE ATTACHMENT
   // ==========================================
   
   // File message bubbles
@@ -603,5 +802,6 @@
   }
   
   console.log('✅ WhatsApp Features Loaded Successfully');
+  console.log('🎨 Dark Mode: Auto-sync enabled');
   
 })();
