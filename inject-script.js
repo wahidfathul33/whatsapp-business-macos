@@ -446,12 +446,16 @@
   }
 
   // ==========================================
-  // PDF THUMBNAIL GENERATOR (ALL PAGES)
+  // PDF THUMBNAIL GENERATOR (ALL PAGES WITH LAZY LOADING)
   // ==========================================
 
-  function generatePDFThumbnails(pdfPath, callback) {
+  function generatePDFThumbnails(pdfPath, callback, options = {}) {
+    const { lazyLoad = true, pageRange = null } = options;
+    
     // Check cache first
-    const cacheKey = `${pdfPath}_all`;
+    const cacheKey = pageRange 
+      ? `${pdfPath}_pages_${pageRange.start}-${pageRange.end}`
+      : `${pdfPath}_all`;
     const cached = getCacheItem(cacheKey);
     
     if (cached) {
@@ -492,8 +496,20 @@
 
       console.log(`📄 PDF has ${totalPages} page(s)`);
 
-      // Convert all pages to PNG
-      const cmd = `pdftoppm -png -scale-to 900 "${pdfPath}" "${outputPrefix}"`;
+      // Determine which pages to generate
+      let startPage = 1;
+      let endPage = totalPages;
+      
+      if (pageRange) {
+        startPage = pageRange.start;
+        endPage = pageRange.end;
+      } else if (lazyLoad && totalPages > 2) {
+        // Only generate first 2 pages initially for lazy loading
+        endPage = 2;
+      }
+
+      // Convert specified pages to PNG
+      const cmd = `pdftoppm -png -f ${startPage} -l ${endPage} -scale-to 900 "${pdfPath}" "${outputPrefix}"`;
 
       exec(cmd, (error, stdout, stderr) => {
         if (error) {
@@ -505,8 +521,8 @@
         try {
           const images = [];
           
-          // Read all generated PNG files
-          for (let i = 1; i <= totalPages; i++) {
+          // Read generated PNG files
+          for (let i = startPage; i <= endPage; i++) {
             const pageFile = `${outputPrefix}-${i}.png`;
             
             if (!fs.existsSync(pageFile)) {
@@ -520,7 +536,8 @@
             if (!image.isEmpty()) {
               images.push({
                 page: i,
-                dataURL: image.toDataURL()
+                dataURL: image.toDataURL(),
+                totalPages: totalPages
               });
             }
 
@@ -533,7 +550,7 @@
             setCacheItem(cacheKey, images);
             
             const cacheSize = getCacheSize();
-            console.log(`✅ Cached ${images.length} page(s) | Total cache: ${cacheSize.toFixed(2)}MB`);
+            console.log(`✅ Cached page(s) ${startPage}-${endPage} of ${totalPages} | Total cache: ${cacheSize.toFixed(2)}MB`);
             
             callback(images);
           } else {
@@ -545,7 +562,7 @@
           
           // Try to clean up any remaining temp files
           try {
-            for (let i = 1; i <= totalPages; i++) {
+            for (let i = startPage; i <= endPage; i++) {
               const pageFile = `${outputPrefix}-${i}.png`;
               if (fs.existsSync(pageFile)) {
                 fs.unlinkSync(pageFile);
@@ -554,6 +571,23 @@
           } catch {}
         }
       });
+    });
+  }
+  
+  // Generate remaining PDF pages on demand
+  function loadMorePDFPages(pdfPath, currentMaxPage, totalPages, callback) {
+    const nextBatch = Math.min(currentMaxPage + 5, totalPages); // Load 5 pages at a time
+    
+    if (currentMaxPage >= totalPages) {
+      callback(null);
+      return;
+    }
+    
+    console.log(`🔄 Loading PDF pages ${currentMaxPage + 1}-${nextBatch}...`);
+    
+    generatePDFThumbnails(pdfPath, callback, {
+      lazyLoad: false,
+      pageRange: { start: currentMaxPage + 1, end: nextBatch }
     });
   }
 
@@ -790,6 +824,38 @@
         z-index: 1;
       }
       
+      /* Lazy loading indicator */
+      .wa-pdf-lazy-loader {
+        width: 100%;
+        padding: 40px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+      }
+      
+      .wa-pdf-lazy-loader-spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+        border-top-color: var(--wa-green);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      
+      .wa-pdf-lazy-loader-text {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.7);
+      }
+      
+      /* Scroll sentinel for intersection observer */
+      .wa-pdf-scroll-sentinel {
+        width: 100%;
+        height: 1px;
+        flex-shrink: 0;
+      }
+      
       @keyframes zoomIn {
         from { 
           opacity: 0;
@@ -969,6 +1035,19 @@
           font-size: 11px;
           padding: 3px 10px;
         }
+        
+        .wa-pdf-lazy-loader {
+          padding: 30px 20px;
+        }
+        
+        .wa-pdf-lazy-loader-spinner {
+          width: 28px;
+          height: 28px;
+        }
+        
+        .wa-pdf-lazy-loader-text {
+          font-size: 12px;
+        }
       }
       
       /* Small Mobile */
@@ -1123,40 +1202,127 @@
 
     // Generate PDF thumbnail after overlay is added to DOM
     if (isPDF) {
+      let currentMaxPage = 0;
+      let totalPages = 0;
+      let isLoading = false;
+      let pdfFilePath = fileInfo.path;
+      
       generatePDFThumbnails(fileInfo.path, (images) => {
         const thumbnailContainer = document.getElementById(
           "pdf-thumbnail-container",
         );
-        if (thumbnailContainer) {
-          if (images && images.length > 0) {
-            // Check if single page or multiple pages
-            if (images.length === 1) {
-              // Single page - display centered
-              thumbnailContainer.className =
-                "wa-file-preview-thumbnail-container has-image";
-              thumbnailContainer.innerHTML = `
-                <img src="${images[0].dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name}">
-              `;
-            } else {
-              // Multiple pages - scrollable layout
-              thumbnailContainer.className =
-                "wa-file-preview-thumbnail-container has-image scrollable";
-              
-              const pagesHTML = images.map((img, index) => `
-                <div class="wa-pdf-page-wrapper">
-                  <img src="${img.dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name} - Page ${img.page}">
-                  <div class="wa-pdf-page-number">Page ${img.page} of ${images.length}</div>
-                </div>
-              `).join('');
-              
-              thumbnailContainer.innerHTML = pagesHTML;
-            }
-          } else {
-            // Fallback to icon if PDF generation failed
+        if (!thumbnailContainer) return;
+        
+        if (images && images.length > 0) {
+          totalPages = images[0].totalPages;
+          currentMaxPage = images[images.length - 1].page;
+          
+          // Check if single page or multiple pages
+          if (totalPages === 1) {
+            // Single page - display centered
+            thumbnailContainer.className =
+              "wa-file-preview-thumbnail-container has-image";
             thumbnailContainer.innerHTML = `
-              <div class="wa-file-preview-icon-large">📄</div>
+              <img src="${images[0].dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name}">
             `;
+          } else if (totalPages === 2 || currentMaxPage >= totalPages) {
+            // Two pages or all pages loaded - normal scrollable layout
+            thumbnailContainer.className =
+              "wa-file-preview-thumbnail-container has-image scrollable";
+            
+            const pagesHTML = images.map((img) => `
+              <div class="wa-pdf-page-wrapper">
+                <img src="${img.dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name} - Page ${img.page}">
+                <div class="wa-pdf-page-number">Page ${img.page} of ${totalPages}</div>
+              </div>
+            `).join('');
+            
+            thumbnailContainer.innerHTML = pagesHTML;
+          } else {
+            // More than 2 pages - lazy loading enabled
+            thumbnailContainer.className =
+              "wa-file-preview-thumbnail-container has-image scrollable";
+            
+            const pagesHTML = images.map((img) => `
+              <div class="wa-pdf-page-wrapper">
+                <img src="${img.dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name} - Page ${img.page}">
+                <div class="wa-pdf-page-number">Page ${img.page} of ${totalPages}</div>
+              </div>
+            `).join('');
+            
+            // Add lazy loader and sentinel
+            thumbnailContainer.innerHTML = pagesHTML + `
+              <div class="wa-pdf-lazy-loader" id="pdf-lazy-loader">
+                <div class="wa-pdf-lazy-loader-spinner"></div>
+                <div class="wa-pdf-lazy-loader-text">Loading more pages...</div>
+              </div>
+              <div class="wa-pdf-scroll-sentinel" id="pdf-scroll-sentinel"></div>
+            `;
+            
+            // Setup Intersection Observer for lazy loading
+            const sentinel = document.getElementById('pdf-scroll-sentinel');
+            const loader = document.getElementById('pdf-lazy-loader');
+            
+            if (sentinel && 'IntersectionObserver' in window) {
+              const observer = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                  if (entry.isIntersecting && !isLoading && currentMaxPage < totalPages) {
+                    isLoading = true;
+                    
+                    // Show loader
+                    if (loader) {
+                      loader.style.display = 'flex';
+                    }
+                    
+                    // Load next batch of pages
+                    loadMorePDFPages(pdfFilePath, currentMaxPage, totalPages, (newImages) => {
+                      if (newImages && newImages.length > 0) {
+                        currentMaxPage = newImages[newImages.length - 1].page;
+                        
+                        // Insert new pages before the loader
+                        const newPagesHTML = newImages.map((img) => `
+                          <div class="wa-pdf-page-wrapper">
+                            <img src="${img.dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name} - Page ${img.page}">
+                            <div class="wa-pdf-page-number">Page ${img.page} of ${totalPages}</div>
+                          </div>
+                        `).join('');
+                        
+                        if (loader) {
+                          loader.insertAdjacentHTML('beforebegin', newPagesHTML);
+                        }
+                        
+                        // Check if all pages loaded
+                        if (currentMaxPage >= totalPages) {
+                          if (loader) loader.remove();
+                          if (sentinel) sentinel.remove();
+                          observer.disconnect();
+                          console.log('✅ All PDF pages loaded');
+                        }
+                      }
+                      
+                      isLoading = false;
+                      
+                      // Hide loader
+                      if (loader && currentMaxPage < totalPages) {
+                        loader.style.display = 'none';
+                      }
+                    });
+                  }
+                });
+              }, {
+                root: thumbnailContainer,
+                rootMargin: '200px', // Start loading 200px before reaching the end
+                threshold: 0
+              });
+              
+              observer.observe(sentinel);
+            }
           }
+        } else {
+          // Fallback to icon if PDF generation failed
+          thumbnailContainer.innerHTML = `
+            <div class="wa-file-preview-icon-large">📄</div>
+          `;
         }
       });
     }
