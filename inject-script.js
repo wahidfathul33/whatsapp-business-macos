@@ -1,49 +1,54 @@
-(function() {
-  console.log('🚀 WhatsApp Inject Script Loaded');
-  
+(function () {
+  console.log("🚀 WhatsApp Inject Script Loaded");
+
   // ==========================================
   // 1. DARK MODE DETECTION & SYNC
   // ==========================================
-  
-  let currentTheme = 'light';
-  let systemTheme = 'light';
-  
+
+  let currentTheme = "light";
+  let systemTheme = "light";
+
   function detectSystemTheme() {
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      return 'dark';
+    if (
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+    ) {
+      return "dark";
     }
-    return 'light';
+    return "light";
   }
-  
+
   function detectWhatsAppTheme() {
     // Method 1: Check body/html class
-    if (document.body.classList.contains('dark') || 
-        document.documentElement.classList.contains('dark')) {
-      return 'dark';
+    if (
+      document.body.classList.contains("dark") ||
+      document.documentElement.classList.contains("dark")
+    ) {
+      return "dark";
     }
-    
+
     // Method 2: Check specific WhatsApp dark mode classes
     const darkModeSelectors = [
       '[data-theme="dark"]',
-      '.dark-mode',
-      '.theme-dark',
-      'body.dark'
+      ".dark-mode",
+      ".theme-dark",
+      "body.dark",
     ];
-    
+
     for (const selector of darkModeSelectors) {
       if (document.querySelector(selector)) {
-        return 'dark';
+        return "dark";
       }
     }
-    
+
     // Method 3: Check background color of main container
     const mainContainers = [
-      '#app',
+      "#app",
       '[data-testid="app-wrapper"]',
-      '.app-wrapper-web',
-      'body'
+      ".app-wrapper-web",
+      "body",
     ];
-    
+
     for (const selector of mainContainers) {
       const element = document.querySelector(selector);
       if (element) {
@@ -55,175 +60,245 @@
           const g = parseInt(match[2]);
           const b = parseInt(match[3]);
           // Calculate luminance
-          const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
+          const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
           if (luminance < 128) {
-            return 'dark';
+            return "dark";
           }
         }
       }
     }
-    
-    return 'light';
+
+    return "light";
   }
-  
+
   function applyTheme(theme) {
     if (currentTheme === theme) return;
-    
+
     currentTheme = theme;
-    document.documentElement.setAttribute('data-wa-theme', theme);
-    
-    console.log('🎨 Theme applied:', theme);
-    
+    document.documentElement.setAttribute("data-wa-theme", theme);
+
+    console.log("🎨 Theme applied:", theme);
+
     // Trigger custom event for other components
-    window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
+    window.dispatchEvent(new CustomEvent("themechange", { detail: { theme } }));
   }
-  
+
   function checkAndApplyTheme() {
     const waTheme = detectWhatsAppTheme();
     applyTheme(waTheme);
   }
-  
+
   // Watch for system theme changes
   if (window.matchMedia) {
-    const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const darkModeQuery = window.matchMedia("(prefers-color-scheme: dark)");
     darkModeQuery.addListener((e) => {
-      systemTheme = e.matches ? 'dark' : 'light';
-      console.log('🌓 System theme changed:', systemTheme);
+      systemTheme = e.matches ? "dark" : "light";
+      console.log("🌓 System theme changed:", systemTheme);
       checkAndApplyTheme();
     });
     systemTheme = detectSystemTheme();
   }
-  
+
   // Watch for WhatsApp theme changes
   const themeObserver = new MutationObserver(() => {
     checkAndApplyTheme();
   });
-  
+
   // Observe body and html for class/attribute changes
   themeObserver.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ['class', 'data-theme', 'style']
+    attributeFilter: ["class", "data-theme", "style"],
   });
-  
+
   if (document.body) {
     themeObserver.observe(document.body, {
       attributes: true,
-      attributeFilter: ['class', 'data-theme', 'style']
+      attributeFilter: ["class", "data-theme", "style"],
     });
   }
-  
+
   // Also observe #app container
   const observeApp = setInterval(() => {
-    const app = document.querySelector('#app');
+    const app = document.querySelector("#app");
     if (app) {
       themeObserver.observe(app, {
         attributes: true,
         subtree: true,
-        attributeFilter: ['class', 'data-theme', 'style']
+        attributeFilter: ["class", "data-theme", "style"],
       });
       clearInterval(observeApp);
     }
   }, 500);
-  
+
   // Initial theme detection
   setTimeout(checkAndApplyTheme, 1000);
   setInterval(checkAndApplyTheme, 5000); // Recheck every 5 seconds
-  
+
   // ==========================================
   // 2. NOTIFICATION
   // ==========================================
   const OriginalNotification = window.Notification;
   let notificationCount = 0;
-  
-  window.Notification = function(title, options) {
+
+  window.Notification = function (title, options) {
     notificationCount++;
     const minimal = {
-      body: options?.body || 'New message',
+      body: options?.body || "New message",
       icon: options?.icon,
       silent: false,
-      requireInteraction: false
+      requireInteraction: false,
     };
-    
-    if (Notification.permission === 'granted') {
+
+    if (Notification.permission === "granted") {
       try {
         const notif = new OriginalNotification(title, minimal);
         return notif;
       } catch (e) {
-        console.error('❌ Notification Error:', e);
+        console.error("❌ Notification Error:", e);
       }
     }
     return null;
   };
-  
+
   window.Notification.permission = OriginalNotification.permission;
-  window.Notification.requestPermission = OriginalNotification.requestPermission.bind(OriginalNotification);
-  
+  window.Notification.requestPermission =
+    OriginalNotification.requestPermission.bind(OriginalNotification);
+
   // ==========================================
   // 3. FILE PREVIEW SYSTEM
   // ==========================================
-  
+
   // Check if Electron APIs are available
-  const fs = require?.('fs');
-  const path = require?.('path');
-  const os = require?.('os');
-  const { shell } = require?.('electron') || {};
-  const { nativeImage } = require?.('electron') || {};
-  const { exec } = require?.('child_process') || {};
-  
+  const fs = require?.("fs");
+  const path = require?.("path");
+  const os = require?.("os");
+  const { shell } = require?.("electron") || {};
+  const { nativeImage } = require?.("electron") || {};
+  const { exec } = require?.("child_process") || {};
+
   if (!fs || !shell) {
-    console.warn('⚠️ Electron API not available - file features disabled');
+    console.warn("⚠️ Electron API not available - file features disabled");
     return;
   }
   
-  const downloadDir = path.join(os.homedir(), 'Downloads');
-  const openedFiles = new Set();
-  const timers = new Map();
   const pdfCache = new Map(); // Cache for PDF thumbnails
-  
+
+  // HARD PATCH: FORCE WHATSAPP DOWNLOAD PATH
+  (function forceWhatsAppDownloadPath() {
+    if (!fs || !path || !os) return;
+
+    const SAVE_DIR = path.join(os.homedir(), "Downloads", "WhatsApp Business");
+
+    if (!fs.existsSync(SAVE_DIR)) {
+      fs.mkdirSync(SAVE_DIR, { recursive: true });
+    }
+
+    console.log("📥 Forced download path:", SAVE_DIR);
+
+    // Intercept all blob / download links
+    document.addEventListener(
+      "click",
+      async (e) => {
+        const link = e.target.closest("a");
+        if (!link) return;
+
+        const href = link.href || "";
+        const filename =
+          link.getAttribute("download") ||
+          link.innerText?.trim() ||
+          `WA-${Date.now()}`;
+
+        const isBlob =
+          href.startsWith("blob:") ||
+          link.hasAttribute("download") ||
+          href.includes("download");
+
+        if (!isBlob) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        try {
+          console.log("⬇️ Intercepted download:", filename);
+
+          const res = await fetch(href);
+          const buffer = Buffer.from(await res.arrayBuffer());
+
+          const safeName = filename
+            .replace(/[<>:"/\\|?*]+/g, "_")
+            .slice(0, 255);
+
+          const filePath = path.join(SAVE_DIR, safeName);
+
+          fs.writeFileSync(filePath, buffer);
+
+          console.log("✅ Saved to:", filePath);
+
+          // Show preview instead of auto open
+          setTimeout(() => {
+            showFilePreview(filePath);
+          }, 300);
+        } catch (err) {
+          console.error("❌ Download intercept failed:", err);
+        }
+      },
+      true,
+    );
+  })();
+
   // File type configurations
   const FILE_TYPES = {
     document: {
-      extensions: ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt'],
-      icon: '📄',
-      color: '#EA4335'
+      extensions: [".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt"],
+      icon: "📄",
+      color: "#5E35B1",
     },
     spreadsheet: {
-      extensions: ['.xlsx', '.xls', '.csv', '.ods'],
-      icon: '📊',
-      color: '#34A853'
+      extensions: [".xlsx", ".xls", ".csv", ".ods"],
+      icon: "📊",
+      color: "#00A884",
     },
     presentation: {
-      extensions: ['.pptx', '.ppt', '.key', '.odp'],
-      icon: '📽️',
-      color: '#FBBC04'
+      extensions: [".pptx", ".ppt", ".key", ".odp"],
+      icon: "📽️",
+      color: "#D65439",
     },
     archive: {
-      extensions: ['.zip', '.rar', '.7z', '.tar', '.gz'],
-      icon: '📦',
-      color: '#4285F4'
+      extensions: [".zip", ".rar", ".7z", ".tar", ".gz"],
+      icon: "📦",
+      color: "#1976D2",
     },
     image: {
-      extensions: ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'],
-      icon: '🖼️',
-      color: '#9C27B0'
+      extensions: [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"],
+      icon: "🖼️",
+      color: "#8E24AA",
     },
     video: {
-      extensions: ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv'],
-      icon: '🎥',
-      color: '#E91E63'
+      extensions: [".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv"],
+      icon: "🎥",
+      color: "#C2185B",
     },
     audio: {
-      extensions: ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac'],
-      icon: '🎵',
-      color: '#FF9800'
+      extensions: [".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"],
+      icon: "🎵",
+      color: "#F57C00",
     },
     database: {
-      extensions: ['.sql', '.db', '.sqlite', '.sqlite3', '.mdb', '.accdb', '.psql', '.bak'],
-      icon: '🗄️',
-      color: '#607D8B'
-    }
+      extensions: [
+        ".sql",
+        ".db",
+        ".sqlite",
+        ".sqlite3",
+        ".mdb",
+        ".accdb",
+        ".psql",
+        ".bak",
+      ],
+      icon: "🗄️",
+      color: "#546E7A",
+    },
   };
-  
+
   function getFileType(filename) {
     const ext = path.extname(filename).toLowerCase();
     for (const [type, config] of Object.entries(FILE_TYPES)) {
@@ -231,91 +306,63 @@
         return { type, ...config };
       }
     }
-    return { type: 'unknown', icon: '📎', color: '#757575', extensions: [] };
+    return { type: "unknown", icon: "📎", color: "#667781", extensions: [] };
   }
-  
+
   function formatFileSize(bytes) {
-    if (bytes === 0) return '0 B';
+    if (bytes === 0) return "0 B";
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   }
-  
-  function isSupported(filename) {
-    return Object.values(FILE_TYPES).some(config =>
-      config.extensions.some(ext => filename.toLowerCase().endsWith(ext))
-    );
-  }
-  
-  function waitUntilStable(file, callback) {
-    let lastSize = -1;
-    let stableCount = 0;
-    
-    const interval = setInterval(() => {
-      if (!fs.existsSync(file)) {
-        clearInterval(interval);
-        return;
-      }
-      
-      const size = fs.statSync(file).size;
-      if (size === lastSize && size > 0) {
-        stableCount++;
-        if (stableCount >= 2) {
-          clearInterval(interval);
-          callback();
-        }
-      } else {
-        lastSize = size;
-        stableCount = 0;
-      }
-    }, 500);
-  }
-  
+
   // ==========================================
   // PDF THUMBNAIL GENERATOR
   // ==========================================
-  
+
   function generatePDFThumbnail(pdfPath, callback) {
     // Check cache first
     if (pdfCache.has(pdfPath)) {
-      callback(pdfCache.get(pdfPath));
-      return;
+        setTimeout(() => {
+            callback(pdfCache.get(pdfPath));
+        }, 0);
+        return;
     }
     
     if (!exec) {
-      console.warn('⚠️ exec not available - PDF preview disabled');
+      console.warn("⚠️ exec not available - PDF preview disabled");
       callback(null);
       return;
     }
-    
+
     const tempDir = os.tmpdir();
     const outputPrefix = path.join(tempDir, `pdf_thumb_${Date.now()}`);
-    
+
     // Use pdftoppm to convert first page to PNG
     const cmd = `pdftoppm -png -f 1 -l 1 -scale-to 800 "${pdfPath}" "${outputPrefix}"`;
-    
+
     exec(cmd, (error, stdout, stderr) => {
       if (error) {
-        console.warn('⚠️ PDF preview failed:', error.message);
+        console.warn("⚠️ PDF preview failed:", error.message);
         callback(null);
         return;
       }
-      
+
       // Find generated PNG file
       const generatedFile = `${outputPrefix}-1.png`;
-      
+
       if (!fs.existsSync(generatedFile)) {
-        console.warn('⚠️ PDF thumbnail not generated');
+        console.warn("⚠️ PDF thumbnail not generated");
         callback(null);
         return;
       }
-      
+
       try {
         // Read the generated PNG
         const imageData = fs.readFileSync(generatedFile);
         const image = nativeImage.createFromBuffer(imageData);
-        
+
         if (!image.isEmpty()) {
           const dataURL = image.toDataURL();
           // Cache the result
@@ -324,11 +371,11 @@
         } else {
           callback(null);
         }
-        
+
         // Clean up temp file
         fs.unlinkSync(generatedFile);
       } catch (e) {
-        console.error('❌ Failed to process PDF thumbnail:', e);
+        console.error("❌ Failed to process PDF thumbnail:", e);
         callback(null);
         // Try to clean up
         try {
@@ -339,59 +386,62 @@
       }
     });
   }
-  
+
   // ==========================================
-  // 4. FILE PREVIEW UI INJECTION (DARK MODE)
+  // 4. FILE PREVIEW UI (WhatsApp Web Style)
   // ==========================================
-  
+
   function injectPreviewStyles() {
-    if (document.getElementById('whatsapp-preview-styles')) return;
-    
-    const style = document.createElement('style');
-    style.id = 'whatsapp-preview-styles';
+    if (document.getElementById("whatsapp-preview-styles")) return;
+
+    const style = document.createElement("style");
+    style.id = "whatsapp-preview-styles";
     style.textContent = `
-      /* Light Mode Variables */
+      /* WhatsApp Web Color Scheme */
       :root {
-        --overlay-bg: rgba(0, 0, 0, 0.85);
-        --container-bg: #1f2937;
-        --content-bg: #ffffff;
-        --header-border: #f3f4f6;
-        --text-primary: #1f2937;
-        --text-secondary: #6b7280;
-        --close-btn-bg: rgba(255, 255, 255, 0.2);
-        --close-btn-hover: rgba(255, 255, 255, 0.3);
-        --btn-secondary-bg: #f3f4f6;
-        --btn-secondary-hover: #e5e7eb;
-        --thumbnail-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        --wa-bg-overlay: rgba(11, 20, 26, 0.92);
+        --wa-bg-primary: #FFFFFF;
+        --wa-bg-secondary: #F0F2F5;
+        --wa-text-primary: #111B21;
+        --wa-text-secondary: #667781;
+        --wa-text-tertiary: #8696A0;
+        --wa-border: #E9EDEF;
+        --wa-green: #00A884;
+        --wa-green-hover: #06CF9C;
+        --wa-icon-bg: rgba(255, 255, 255, 0.1);
+        --wa-icon-hover: rgba(255, 255, 255, 0.2);
+        --wa-shadow: rgba(11, 20, 26, 0.1);
       }
       
-      /* Dark Mode Variables */
+      /* Dark Mode WhatsApp Colors */
       [data-wa-theme="dark"] {
-        --overlay-bg: rgba(0, 0, 0, 0.95);
-        --container-bg: #0b141a;
-        --content-bg: #1f2937;
-        --header-border: #374151;
-        --text-primary: #f3f4f6;
-        --text-secondary: #9ca3af;
-        --close-btn-bg: rgba(255, 255, 255, 0.1);
-        --close-btn-hover: rgba(255, 255, 255, 0.2);
-        --btn-secondary-bg: #374151;
-        --btn-secondary-hover: #4b5563;
-        --thumbnail-bg: linear-gradient(135deg, #4c51bf 0%, #6b46c1 100%);
+        --wa-bg-overlay: rgba(0, 0, 0, 0.95);
+        --wa-bg-primary: #111B21;
+        --wa-bg-secondary: #0B141A;
+        --wa-text-primary: #E9EDEF;
+        --wa-text-secondary: #8696A0;
+        --wa-text-tertiary: #667781;
+        --wa-border: #2A3942;
+        --wa-green: #00A884;
+        --wa-green-hover: #06CF9C;
+        --wa-icon-bg: rgba(255, 255, 255, 0.1);
+        --wa-icon-hover: rgba(255, 255, 255, 0.15);
+        --wa-shadow: rgba(0, 0, 0, 0.3);
       }
       
+      /* Fullscreen Overlay */
       .wa-file-preview-overlay {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        background: var(--overlay-bg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 100vw;
+        height: 100vh;
+        background: var(--wa-bg-overlay);
         z-index: 999999;
-        backdrop-filter: blur(10px);
+        display: flex;
+        flex-direction: column;
         animation: fadeIn 0.2s ease-out;
       }
       
@@ -400,266 +450,344 @@
         to { opacity: 1; }
       }
       
-      @keyframes slideUp {
-        from { 
-          opacity: 0;
-          transform: translateY(20px) scale(0.95);
-        }
-        to { 
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
+      /* Header Bar - Fixed at top */
+      .wa-file-preview-header {
+        flex-shrink: 0;
+        padding: 16px 20px;
+        background: var(--wa-bg-primary);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        position: relative;
+        z-index: 2;
       }
       
-      .wa-file-preview-container {
-        background: var(--container-bg);
-        border-radius: 20px;
-        padding: 0;
-        max-width: 600px;
-        width: 90%;
-        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.7);
-        animation: slideUp 0.3s ease-out;
-        overflow: hidden;
-        transition: background 0.3s ease;
+      .wa-file-preview-info {
+        flex: 1;
+        min-width: 0;
       }
       
-      .wa-file-preview-content {
-        background: var(--content-bg);
-        border-radius: 16px;
-        margin: 4px;
-        transition: background 0.3s ease;
-      }
-      
-      .wa-file-preview-thumbnail-container {
-        width: 100%;
-        min-height: 300px;
-        max-height: 400px;
-        background: var(--thumbnail-bg);
+      .wa-file-preview-close {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.2s;
         display: flex;
         align-items: center;
         justify-content: center;
-        position: relative;
-        overflow: hidden;
-        transition: background 0.3s ease;
+        color: white;
+        font-size: 24px;
+        flex-shrink: 0;
+        line-height: 1;
+        order: 2;
       }
       
-      .wa-file-preview-thumbnail-container.has-image {
-        background: #000;
-      }
-      
-      .wa-file-preview-thumbnail {
-        max-width: 100%;
-        max-height: 400px;
-        object-fit: contain;
-      }
-      
-      .wa-file-preview-icon-large {
-        font-size: 120px;
-        opacity: 0.9;
-        text-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        animation: iconPulse 2s ease-in-out infinite;
-      }
-      
-      @keyframes iconPulse {
-        0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.05); }
-      }
-      
-      .wa-file-preview-header {
-        padding: 20px 24px;
-        border-bottom: 1px solid var(--header-border);
-        transition: border-color 0.3s ease;
+      .wa-file-preview-close:hover {
+        background: var(--wa-icon-hover);
       }
       
       .wa-file-preview-name {
-        font-size: 18px;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 8px;
-        line-height: 1.4;
+        font-size: 16px;
+        font-weight: 400;
+        color: white;
+        margin-bottom: 4px;
+        line-height: 1.3;
         word-break: break-word;
-        transition: color 0.3s ease;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
       }
       
       .wa-file-preview-meta {
         display: flex;
-        gap: 12px;
-        font-size: 14px;
-        color: var(--text-secondary);
+        gap: 8px;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.7);
         align-items: center;
         flex-wrap: wrap;
-        transition: color 0.3s ease;
       }
       
       .wa-file-preview-meta-item {
         display: flex;
         align-items: center;
-        gap: 6px;
-      }
-      
-      .wa-file-preview-badge {
-        display: inline-flex;
-        align-items: center;
         gap: 4px;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
       }
       
+      .wa-file-preview-meta-divider {
+        color: rgba(255, 255, 255, 0.5);
+        margin: 0 2px;
+      }
+      
+      /* Content Area - Fullscreen center */
+      .wa-file-preview-content {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        position: relative;
+        background: var(--wa-bg-overlay);
+      }
+      
+      .wa-file-preview-thumbnail-container {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        padding: 20px;
+      }
+      
+      .wa-file-preview-thumbnail-container.has-image {
+        background: transparent;
+      }
+      
+      .wa-file-preview-thumbnail {
+        max-width: 100%;
+        max-height: 100%;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        animation: zoomIn 0.3s ease-out;
+      }
+      
+      @keyframes zoomIn {
+        from { 
+          opacity: 0;
+          transform: scale(0.9);
+        }
+        to { 
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+      
+      .wa-file-preview-icon-large {
+        font-size: 120px;
+        opacity: 0.3;
+        animation: iconFadeIn 0.4s ease-out;
+      }
+      
+      @keyframes iconFadeIn {
+        from { 
+          opacity: 0;
+          transform: scale(0.8);
+        }
+        to { 
+          opacity: 0.3;
+          transform: scale(1);
+        }
+      }
+      
+      /* Action Bar - Fixed at bottom */
       .wa-file-preview-actions {
+        flex-shrink: 0;
         display: flex;
         gap: 12px;
-        padding: 20px 24px;
+        padding: 16px 20px;
+        background: var(--wa-bg-primary);
+        position: relative;
+        z-index: 2;
       }
       
       .wa-file-preview-btn {
         flex: 1;
-        padding: 14px 24px;
-        border-radius: 12px;
+        padding: 12px 24px;
+        border-radius: 8px;
         border: none;
         font-size: 15px;
-        font-weight: 600;
+        font-weight: 500;
         cursor: pointer;
         transition: all 0.2s;
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 8px;
+        white-space: nowrap;
+      }
+      
+      .wa-file-preview-btn svg {
+        flex-shrink: 0;
       }
       
       .wa-file-preview-btn-primary {
-        background: #25D366;
+        background: var(--wa-green);
         color: white;
-        box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);
       }
       
       .wa-file-preview-btn-primary:hover {
-        background: #20BA5A;
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(37, 211, 102, 0.4);
-      }
-      
-      .wa-file-preview-btn-primary:active {
-        transform: translateY(0);
+        background: var(--wa-green-hover);
       }
       
       .wa-file-preview-btn-secondary {
-        background: var(--btn-secondary-bg);
-        color: var(--text-primary);
-        transition: all 0.2s, background 0.3s ease, color 0.3s ease;
+        background: var(--wa-bg-secondary);
+        color: var(--wa-text-primary);
+      }
+      
+      [data-wa-theme="dark"] .wa-file-preview-btn-secondary {
+        background: #2A3942;
+        color: var(--wa-text-primary);
       }
       
       .wa-file-preview-btn-secondary:hover {
-        background: var(--btn-secondary-hover);
-        transform: translateY(-1px);
+        opacity: 0.9;
       }
       
-      .wa-file-preview-close {
-        position: absolute;
-        top: 20px;
-        right: 20px;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: var(--close-btn-bg);
-        border: none;
-        cursor: pointer;
-        transition: all 0.2s, background 0.3s ease;
-      }
-
-      .wa-file-preview-close::before,
-      .wa-file-preview-close::after {
-        content: "";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 18px;
-        height: 2px;
-        background: white;
-        transform-origin: center;
-      }
-
-      .wa-file-preview-close::before {
-        transform: translate(-50%, -50%) rotate(45deg);
-      }
-
-      .wa-file-preview-close::after {
-        transform: translate(-50%, -50%) rotate(-45deg);
+      .wa-file-preview-btn:active {
+        transform: scale(0.98);
       }
       
-      .wa-file-preview-close:hover {
-        background: var(--close-btn-hover);
-        transform: scale(1.1);
-      }
-      
-      .wa-file-preview-close:active {
-        transform: scale(0.95);
-      }
-      
-      /* Loading spinner for PDF generation */
+      /* Loading spinner */
       .wa-file-preview-loading {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         height: 100%;
-        min-height: 300px;
+        gap: 16px;
       }
       
       .wa-file-preview-spinner {
-        width: 50px;
-        height: 50px;
-        border: 4px solid rgba(255, 255, 255, 0.2);
-        border-top-color: rgba(255, 255, 255, 0.8);
+        width: 48px;
+        height: 48px;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+        border-top-color: var(--wa-green);
         border-radius: 50%;
-        animation: spin 1s linear infinite;
+        animation: spin 0.8s linear infinite;
+      }
+      
+      .wa-file-preview-loading-text {
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.7);
       }
       
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
       
-      /* Dark mode specific adjustments */
-      [data-wa-theme="dark"] .wa-file-preview-thumbnail-container:not(.has-image) {
-        background: linear-gradient(135deg, #4c51bf 0%, #6b46c1 100%);
+      /* File type badge */
+      .wa-file-type-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        background: rgba(255, 255, 255, 0.15);
+        color: rgba(255, 255, 255, 0.9);
       }
       
-      /* Smooth transitions for theme changes */
-      .wa-file-preview-overlay,
-      .wa-file-preview-container,
-      .wa-file-preview-content,
+      /* Mobile Responsive */
+      @media (max-width: 768px) {
+        .wa-file-preview-header {
+          padding: 12px 16px;
+        }
+        
+        .wa-file-preview-close {
+          width: 40px;
+          height: 40px;
+          font-size: 20px;
+        }
+        
+        .wa-file-preview-name {
+          font-size: 15px;
+          -webkit-line-clamp: 1;
+        }
+        
+        .wa-file-preview-meta {
+          font-size: 12px;
+        }
+        
+        .wa-file-preview-actions {
+          padding: 12px 16px;
+          flex-direction: column;
+        }
+        
+        .wa-file-preview-btn {
+          padding: 12px 20px;
+          font-size: 14px;
+        }
+        
+        .wa-file-preview-thumbnail-container {
+          padding: 10px;
+        }
+        
+        .wa-file-preview-icon-large {
+          font-size: 80px;
+        }
+      }
+      
+      /* Small Mobile */
+      @media (max-width: 480px) {
+        .wa-file-preview-name {
+          font-size: 14px;
+        }
+        
+        .wa-file-preview-meta {
+          font-size: 11px;
+        }
+        
+        .wa-file-preview-btn {
+          padding: 10px 16px;
+          font-size: 13px;
+        }
+        
+        .wa-file-preview-icon-large {
+          font-size: 64px;
+        }
+      }
+      
+      /* Landscape Mobile */
+      @media (max-height: 500px) and (orientation: landscape) {
+        .wa-file-preview-header {
+          padding: 8px 16px;
+        }
+        
+        .wa-file-preview-actions {
+          padding: 8px 16px;
+          flex-direction: row;
+        }
+        
+        .wa-file-preview-btn {
+          padding: 8px 16px;
+          font-size: 13px;
+        }
+      }
+      
+      /* Smooth transitions */
       .wa-file-preview-header,
-      .wa-file-preview-name,
-      .wa-file-preview-meta,
-      .wa-file-preview-btn-secondary,
+      .wa-file-preview-content,
+      .wa-file-preview-actions,
+      .wa-file-preview-btn,
       .wa-file-preview-close {
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
       }
     `;
     document.head.appendChild(style);
   }
-  
+
   function createPreviewOverlay(fileInfo) {
-    const overlay = document.createElement('div');
-    overlay.className = 'wa-file-preview-overlay';
-    
-    const container = document.createElement('div');
-    container.className = 'wa-file-preview-container';
-    
-    const content = document.createElement('div');
-    content.className = 'wa-file-preview-content';
-    
+    const overlay = document.createElement("div");
+    overlay.className = "wa-file-preview-overlay";
+
     const fileType = getFileType(fileInfo.name);
-    
-    let thumbnailHTML = '';
+
+    let thumbnailHTML = "";
     let hasImage = false;
-    let isPDF = fileType.type === 'document' && fileInfo.path.toLowerCase().endsWith('.pdf');
-    
+    let isPDF =
+      fileType.type === "document" &&
+      fileInfo.path.toLowerCase().endsWith(".pdf");
+
     // Generate thumbnail for images
-    if (fileType.type === 'image' && nativeImage) {
+    if (fileType.type === "image" && nativeImage) {
       try {
         const image = nativeImage.createFromPath(fileInfo.path);
         if (!image.isEmpty()) {
@@ -672,129 +800,96 @@
           hasImage = true;
         }
       } catch (e) {
-        console.error('Failed to create image thumbnail:', e);
+        console.error("Failed to create image thumbnail:", e);
       }
     }
-    
+
     // Handle PDF with loading state
     if (isPDF && !hasImage) {
       thumbnailHTML = `
         <div class="wa-file-preview-thumbnail-container" id="pdf-thumbnail-container">
           <div class="wa-file-preview-loading">
             <div class="wa-file-preview-spinner"></div>
-            <div style="margin-top: 16px; font-size: 14px; color: rgba(255,255,255,0.9);">
-              Generating PDF preview...
-            </div>
+            <div class="wa-file-preview-loading-text">Loading preview...</div>
           </div>
         </div>
       `;
     }
-    
-    // If no image and not PDF, show icon with gradient background
-    if (!hasImage && !isPDF) {
-      const gradients = {
-        document: 'linear-gradient(135deg, #EA4335 0%, #FF6B6B 100%)',
-        spreadsheet: 'linear-gradient(135deg, #34A853 0%, #4CAF50 100%)',
-        presentation: 'linear-gradient(135deg, #FBBC04 0%, #FFA726 100%)',
-        archive: 'linear-gradient(135deg, #4285F4 0%, #42A5F5 100%)',
-        image: 'linear-gradient(135deg, #9C27B0 0%, #BA68C8 100%)',
-        video: 'linear-gradient(135deg, #E91E63 0%, #F06292 100%)',
-        audio: 'linear-gradient(135deg, #FF9800 0%, #FFB74D 100%)',
-        database: 'linear-gradient(135deg, #607D8B 0%, #90A4AE 100%)',
-        unknown: 'linear-gradient(135deg, #757575 0%, #9E9E9E 100%)'
-      };
-      
-      // Adjust for dark mode
-      const isDark = currentTheme === 'dark';
-      const darkGradients = {
-        document: 'linear-gradient(135deg, #DC2626 0%, #EF4444 100%)',
-        spreadsheet: 'linear-gradient(135deg, #16A34A 0%, #22C55E 100%)',
-        presentation: 'linear-gradient(135deg, #D97706 0%, #F59E0B 100%)',
-        archive: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
-        image: 'linear-gradient(135deg, #7C3AED 0%, #8B5CF6 100%)',
-        video: 'linear-gradient(135deg, #DB2777 0%, #EC4899 100%)',
-        audio: 'linear-gradient(135deg, #EA580C 0%, #F97316 100%)',
-        database: 'linear-gradient(135deg, #475569 0%, #64748B 100%)',
-        unknown: 'linear-gradient(135deg, #52525B 0%, #71717A 100%)'
-      };
-      
-      const gradient = isDark ? darkGradients[fileType.type] || darkGradients.unknown : gradients[fileType.type] || gradients.unknown;
-      
+
+    // If no image and not PDF, show icon
+    if (!thumbnailHTML) {
       thumbnailHTML = `
-        <div class="wa-file-preview-thumbnail-container" style="background: ${gradient}">
+        <div class="wa-file-preview-thumbnail-container">
           <div class="wa-file-preview-icon-large">${fileType.icon}</div>
         </div>
       `;
     }
-    
-    // Format date
+
+    // Format date WhatsApp style
     const formatDate = (date) => {
       const now = new Date();
       const diff = now - date;
-      const seconds = Math.floor(diff / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      
-      if (seconds < 60) return 'Just now';
-      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+
+      if (hours < 1) return "just now";
       if (hours < 24) return `${hours}h ago`;
-      return date.toLocaleDateString();
-    };
-    
-    content.innerHTML = `
-      ${thumbnailHTML}
       
+      const days = Math.floor(hours / 24);
+      if (days < 7) return `${days}d ago`;
+      
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+
+    overlay.innerHTML = `
       <div class="wa-file-preview-header">
-        <div class="wa-file-preview-name">${fileInfo.name}</div>
-        <div class="wa-file-preview-meta">
-          <div class="wa-file-preview-meta-item">
-            <span class="wa-file-preview-badge" style="background-color: ${fileType.color}20; color: ${fileType.color};">
-              ${fileType.icon} ${fileType.type}
-            </span>
-          </div>
-          <div class="wa-file-preview-meta-item">
-            📦 ${fileInfo.size}
-          </div>
-          <div class="wa-file-preview-meta-item">
-            🕐 ${formatDate(fileInfo.modified)}
+        <div class="wa-file-preview-info">
+          <div class="wa-file-preview-name">${fileInfo.name}</div>
+          <div class="wa-file-preview-meta">
+            <span class="wa-file-type-badge">${fileType.type.toUpperCase()}</span>
+            <span class="wa-file-preview-meta-divider">•</span>
+            <span class="wa-file-preview-meta-item">${fileInfo.size}</span>
+            <span class="wa-file-preview-meta-divider">•</span>
+            <span class="wa-file-preview-meta-item">${formatDate(fileInfo.modified)}</span>
           </div>
         </div>
+        <button class="wa-file-preview-close" aria-label="Close">✕</button>
+      </div>
+      
+      <div class="wa-file-preview-content">
+        ${thumbnailHTML}
       </div>
       
       <div class="wa-file-preview-actions">
-        <button class="wa-file-preview-btn wa-file-preview-btn-primary" data-action="open">
-          📂 Open File
-        </button>
         <button class="wa-file-preview-btn wa-file-preview-btn-secondary" data-action="folder">
-          📁 Show in Folder
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>
+          </svg>
+          Show in Folder
+        </button>
+        <button class="wa-file-preview-btn wa-file-preview-btn-primary" data-action="open">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+          </svg>
+          Open File
         </button>
       </div>
     `;
-    
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'wa-file-preview-close';
-    closeBtn.setAttribute('aria-label', 'Close preview');
-    closeBtn.onclick = () => overlay.remove();
-    
-    container.appendChild(content);
-    overlay.appendChild(closeBtn);
-    overlay.appendChild(container);
-    
+
     // Generate PDF thumbnail after overlay is added to DOM
     if (isPDF) {
       generatePDFThumbnail(fileInfo.path, (dataURL) => {
-        const thumbnailContainer = document.getElementById('pdf-thumbnail-container');
+        const thumbnailContainer = document.getElementById(
+          "pdf-thumbnail-container",
+        );
         if (thumbnailContainer) {
           if (dataURL) {
-            thumbnailContainer.className = 'wa-file-preview-thumbnail-container has-image';
+            thumbnailContainer.className =
+              "wa-file-preview-thumbnail-container has-image";
             thumbnailContainer.innerHTML = `
               <img src="${dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name}">
             `;
           } else {
             // Fallback to icon if PDF generation failed
-            thumbnailContainer.style.background = currentTheme === 'dark' ? 
-              'linear-gradient(135deg, #DC2626 0%, #EF4444 100%)' :
-              'linear-gradient(135deg, #EA4335 0%, #FF6B6B 100%)';
             thumbnailContainer.innerHTML = `
               <div class="wa-file-preview-icon-large">📄</div>
             `;
@@ -802,137 +897,99 @@
         }
       });
     }
-    
+
     // Event handlers
-    content.querySelector('[data-action="open"]').onclick = () => {
+    const closeBtn = overlay.querySelector('.wa-file-preview-close');
+    closeBtn.onclick = () => overlay.remove();
+
+    overlay.querySelector('[data-action="open"]').onclick = () => {
       shell.openPath(fileInfo.path);
       overlay.remove();
     };
-    
-    content.querySelector('[data-action="folder"]').onclick = () => {
+
+    overlay.querySelector('[data-action="folder"]').onclick = () => {
       shell.showItemInFolder(fileInfo.path);
       overlay.remove();
     };
-    
+
     // Close on ESC key
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         overlay.remove();
-        document.removeEventListener('keydown', handleKeyDown);
+        document.removeEventListener("keydown", handleKeyDown);
       }
     };
-    document.addEventListener('keydown', handleKeyDown);
-    
+    document.addEventListener("keydown", handleKeyDown);
+
     overlay.onclick = (e) => {
-      if (e.target === overlay) {
+      if (e.target === overlay || e.target.classList.contains('wa-file-preview-content')) {
         overlay.remove();
-        document.removeEventListener('keydown', handleKeyDown);
+        document.removeEventListener("keydown", handleKeyDown);
       }
     };
-    
+
     return overlay;
   }
-  
+
   function showFilePreview(filePath) {
     if (!fs.existsSync(filePath)) return;
-    
+
     const stats = fs.statSync(filePath);
     const fileInfo = {
       path: filePath,
       name: path.basename(filePath),
       size: formatFileSize(stats.size),
-      modified: stats.mtime
+      modified: stats.mtime,
     };
-    
+
     injectPreviewStyles();
     const overlay = createPreviewOverlay(fileInfo);
     document.body.appendChild(overlay);
-    
-    console.log('📋 Preview shown:', fileInfo.name);
+
+    console.log("📋 Preview shown:", fileInfo.name);
   }
-  
-  // ==========================================
-  // 5. FILE DOWNLOAD WATCHER
-  // ==========================================
-  
-  try {
-    fs.watch(downloadDir, (event, filename) => {
-      if (!filename) return;
-      if (!isSupported(filename)) return;
-      
-      const fullPath = path.join(downloadDir, filename);
-      
-      // Skip if already opened
-      if (openedFiles.has(fullPath)) return;
-      
-      // Debounce file events
-      if (timers.has(fullPath)) {
-        clearTimeout(timers.get(fullPath));
-      }
-      
-      timers.set(
-        fullPath,
-        setTimeout(() => {
-          if (!fs.existsSync(fullPath)) return;
-          
-          waitUntilStable(fullPath, () => {
-            if (openedFiles.has(fullPath)) return;
-            openedFiles.add(fullPath);
-            
-            console.log('📥 New file detected:', filename);
-            
-            // Show preview instead of auto-opening
-            showFilePreview(fullPath);
-          });
-        }, 1000)
-      );
-    });
-    
-    console.log('👀 Watching downloads folder:', downloadDir);
-  } catch (error) {
-    console.error('❌ Failed to watch downloads folder:', error);
-  }
-  
+
   // ==========================================
   // 6. CUSTOM FILE ATTACHMENT
   // ==========================================
-  
+
   // File message bubbles
   function fileMessages() {
     const observer = new MutationObserver(() => {
-      const fileMessages = document.querySelectorAll('[data-icon="document"], [data-icon="audio-download"], [data-icon="video"]');
-      
-      fileMessages.forEach(msg => {
-        if (msg.classList.contains('wa-processed')) return;
-        msg.classList.add('wa-processed');
-        
-        msg.style.cursor = 'pointer';
-        msg.style.transition = 'transform 0.2s';
-        
-        msg.addEventListener('mouseenter', () => {
-          msg.style.transform = 'scale(1.02)';
+      const fileMessages = document.querySelectorAll(
+        '[data-icon="document"], [data-icon="audio-download"], [data-icon="video"]',
+      );
+
+      fileMessages.forEach((msg) => {
+        if (msg.classList.contains("wa-processed")) return;
+        msg.classList.add("wa-processed");
+
+        msg.style.cursor = "pointer";
+        msg.style.transition = "transform 0.2s";
+
+        msg.addEventListener("mouseenter", () => {
+          msg.style.transform = "scale(1.02)";
         });
-        
-        msg.addEventListener('mouseleave', () => {
-          msg.style.transform = 'scale(1)';
+
+        msg.addEventListener("mouseleave", () => {
+          msg.style.transform = "scale(1)";
         });
       });
     });
-    
+
     observer.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
     });
   }
-  
+
   // Wait for DOM to be ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', fileMessages);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", fileMessages);
   } else {
     fileMessages();
   }
-  
-  console.log('✅ WhatsApp Features Loaded Successfully');
-  console.log('🎨 Dark Mode: Auto-sync enabled');
-  
+
+  console.log("✅ WhatsApp Features Loaded Successfully");
+  console.log("🎨 Dark Mode: Auto-sync enabled");
 })();
