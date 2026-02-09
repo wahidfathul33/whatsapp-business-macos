@@ -471,6 +471,7 @@
         width: 44px;
         height: 44px;
         border-radius: 50%;
+        background: var(--wa-icon-bg);
         border: none;
         cursor: pointer;
         transition: background-color 0.2s;
@@ -541,6 +542,7 @@
         justify-content: center;
         position: relative;
         padding: 20px;
+        cursor: pointer;
       }
       
       .wa-file-preview-thumbnail-container.has-image {
@@ -554,6 +556,8 @@
         height: auto;
         object-fit: contain;
         animation: zoomIn 0.3s ease-out;
+        cursor: default;
+        pointer-events: auto;
       }
       
       @keyframes zoomIn {
@@ -571,6 +575,8 @@
         font-size: 120px;
         opacity: 0.3;
         animation: iconFadeIn 0.4s ease-out;
+        cursor: default;
+        pointer-events: auto;
       }
       
       @keyframes iconFadeIn {
@@ -921,12 +927,27 @@
     };
     document.addEventListener("keydown", handleKeyDown);
 
+    // Click handlers for closing
     overlay.onclick = (e) => {
+      // Close if clicked on overlay background or content area
       if (e.target === overlay || e.target.classList.contains('wa-file-preview-content')) {
         overlay.remove();
         document.removeEventListener("keydown", handleKeyDown);
       }
     };
+
+    // Close when clicking thumbnail container but NOT the thumbnail itself
+    const thumbnailContainer = overlay.querySelector('.wa-file-preview-thumbnail-container');
+    if (thumbnailContainer) {
+      thumbnailContainer.onclick = (e) => {
+        // Only close if clicking the container itself, not the thumbnail image or icon
+        if (e.target === thumbnailContainer || 
+            e.target.classList.contains('wa-file-preview-thumbnail-container')) {
+          overlay.remove();
+          document.removeEventListener("keydown", handleKeyDown);
+        }
+      };
+    }
 
     return overlay;
   }
