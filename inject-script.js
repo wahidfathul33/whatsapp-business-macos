@@ -182,6 +182,134 @@
   }
   
   const pdfCache = new Map(); // Cache for PDF thumbnails
+  const cacheMetadata = new Map(); // Track cache timestamp and size
+  
+  // Cache configuration
+  const CACHE_CONFIG = {
+    MAX_ENTRIES: 50, // Maximum number of PDFs to cache
+    MAX_SIZE_MB: 200, // Maximum total cache size in MB
+    EXPIRY_HOURS: 24, // Cache expiry time in hours
+  };
+  
+  // Cache management functions
+  function getCacheSize() {
+    let totalSize = 0;
+    for (const [key, data] of pdfCache.entries()) {
+      if (Array.isArray(data)) {
+        // Multi-page PDF - sum all pages
+        totalSize += data.reduce((sum, page) => {
+          return sum + (page.dataURL ? page.dataURL.length : 0);
+        }, 0);
+      } else {
+        // Single item
+        totalSize += data.length || 0;
+      }
+    }
+    return totalSize / (1024 * 1024); // Convert to MB
+  }
+  
+  function isExpired(timestamp) {
+    const now = Date.now();
+    const expiryTime = CACHE_CONFIG.EXPIRY_HOURS * 60 * 60 * 1000; // 24 hours in ms
+    return (now - timestamp) > expiryTime;
+  }
+  
+  function cleanExpiredCache() {
+    const now = Date.now();
+    let removed = 0;
+    
+    for (const [key, meta] of cacheMetadata.entries()) {
+      if (isExpired(meta.timestamp)) {
+        pdfCache.delete(key);
+        cacheMetadata.delete(key);
+        removed++;
+      }
+    }
+    
+    if (removed > 0) {
+      console.log(`🧹 Cleaned ${removed} expired PDF cache entries`);
+    }
+  }
+  
+  function enforceCache() {
+    // Clean expired entries first
+    cleanExpiredCache();
+    
+    // Check size limit
+    let currentSize = getCacheSize();
+    if (currentSize > CACHE_CONFIG.MAX_SIZE_MB) {
+      console.log(`⚠️ Cache size (${currentSize.toFixed(2)}MB) exceeds limit, cleaning oldest entries...`);
+      
+      // Sort by timestamp (oldest first)
+      const entries = Array.from(cacheMetadata.entries())
+        .sort((a, b) => a[1].timestamp - b[1].timestamp);
+      
+      // Remove oldest until under limit
+      for (const [key] of entries) {
+        pdfCache.delete(key);
+        cacheMetadata.delete(key);
+        currentSize = getCacheSize();
+        
+        if (currentSize <= CACHE_CONFIG.MAX_SIZE_MB * 0.8) { // 80% of limit
+          break;
+        }
+      }
+      
+      console.log(`✅ Cache cleaned, new size: ${currentSize.toFixed(2)}MB`);
+    }
+    
+    // Check entry count limit
+    if (pdfCache.size > CACHE_CONFIG.MAX_ENTRIES) {
+      console.log(`⚠️ Cache entries (${pdfCache.size}) exceeds limit, cleaning oldest...`);
+      
+      const entries = Array.from(cacheMetadata.entries())
+        .sort((a, b) => a[1].timestamp - b[1].timestamp);
+      
+      const toRemove = pdfCache.size - Math.floor(CACHE_CONFIG.MAX_ENTRIES * 0.8);
+      
+      for (let i = 0; i < toRemove; i++) {
+        const [key] = entries[i];
+        pdfCache.delete(key);
+        cacheMetadata.delete(key);
+      }
+      
+      console.log(`✅ Cache entries cleaned, new count: ${pdfCache.size}`);
+    }
+  }
+  
+  function setCacheItem(key, value) {
+    pdfCache.set(key, value);
+    cacheMetadata.set(key, {
+      timestamp: Date.now(),
+      accessCount: 1,
+    });
+    enforceCache();
+  }
+  
+  function getCacheItem(key) {
+    if (!pdfCache.has(key)) {
+      return null;
+    }
+    
+    // Check if expired
+    const meta = cacheMetadata.get(key);
+    if (meta && isExpired(meta.timestamp)) {
+      pdfCache.delete(key);
+      cacheMetadata.delete(key);
+      return null;
+    }
+    
+    // Update access metadata
+    if (meta) {
+      meta.accessCount++;
+      meta.lastAccess = Date.now();
+    }
+    
+    return pdfCache.get(key);
+  }
+  
+  // Clean expired cache every hour
+  setInterval(cleanExpiredCache, 60 * 60 * 1000);
 
   // HARD PATCH: FORCE WHATSAPP DOWNLOAD PATH
   (function forceWhatsAppDownloadPath() {
@@ -318,16 +446,20 @@
   }
 
   // ==========================================
-  // PDF THUMBNAIL GENERATOR
+  // PDF THUMBNAIL GENERATOR (ALL PAGES)
   // ==========================================
 
-  function generatePDFThumbnail(pdfPath, callback) {
+  function generatePDFThumbnails(pdfPath, callback) {
     // Check cache first
-    if (pdfCache.has(pdfPath)) {
-        setTimeout(() => {
-            callback(pdfCache.get(pdfPath));
-        }, 0);
-        return;
+    const cacheKey = `${pdfPath}_all`;
+    const cached = getCacheItem(cacheKey);
+    
+    if (cached) {
+      console.log(`✅ Using cached PDF preview for: ${path.basename(pdfPath)}`);
+      setTimeout(() => {
+        callback(cached);
+      }, 0);
+      return;
     }
     
     if (!exec) {
@@ -336,54 +468,92 @@
       return;
     }
 
+    console.log(`🔄 Generating PDF preview for: ${path.basename(pdfPath)}`);
+    
     const tempDir = os.tmpdir();
     const outputPrefix = path.join(tempDir, `pdf_thumb_${Date.now()}`);
 
-    // Use pdftoppm to convert first page to PNG
-    const cmd = `pdftoppm -png -f 1 -l 1 -scale-to 800 "${pdfPath}" "${outputPrefix}"`;
-
-    exec(cmd, (error, stdout, stderr) => {
+    // First, get the total number of pages
+    const getPageCountCmd = `pdfinfo "${pdfPath}" | grep "Pages:" | awk '{print $2}'`;
+    
+    exec(getPageCountCmd, (error, stdout, stderr) => {
       if (error) {
-        console.warn("⚠️ PDF preview failed:", error.message);
+        console.warn("⚠️ Failed to get PDF page count:", error.message);
         callback(null);
         return;
       }
 
-      // Find generated PNG file
-      const generatedFile = `${outputPrefix}-1.png`;
-
-      if (!fs.existsSync(generatedFile)) {
-        console.warn("⚠️ PDF thumbnail not generated");
+      const totalPages = parseInt(stdout.trim());
+      if (!totalPages || totalPages < 1) {
+        console.warn("⚠️ Invalid page count");
         callback(null);
         return;
       }
 
-      try {
-        // Read the generated PNG
-        const imageData = fs.readFileSync(generatedFile);
-        const image = nativeImage.createFromBuffer(imageData);
+      console.log(`📄 PDF has ${totalPages} page(s)`);
 
-        if (!image.isEmpty()) {
-          const dataURL = image.toDataURL();
-          // Cache the result
-          pdfCache.set(pdfPath, dataURL);
-          callback(dataURL);
-        } else {
+      // Convert all pages to PNG
+      const cmd = `pdftoppm -png -scale-to 900 "${pdfPath}" "${outputPrefix}"`;
+
+      exec(cmd, (error, stdout, stderr) => {
+        if (error) {
+          console.warn("⚠️ PDF preview failed:", error.message);
           callback(null);
+          return;
         }
 
-        // Clean up temp file
-        fs.unlinkSync(generatedFile);
-      } catch (e) {
-        console.error("❌ Failed to process PDF thumbnail:", e);
-        callback(null);
-        // Try to clean up
         try {
-          if (fs.existsSync(generatedFile)) {
-            fs.unlinkSync(generatedFile);
+          const images = [];
+          
+          // Read all generated PNG files
+          for (let i = 1; i <= totalPages; i++) {
+            const pageFile = `${outputPrefix}-${i}.png`;
+            
+            if (!fs.existsSync(pageFile)) {
+              console.warn(`⚠️ Page ${i} not generated`);
+              continue;
+            }
+
+            const imageData = fs.readFileSync(pageFile);
+            const image = nativeImage.createFromBuffer(imageData);
+
+            if (!image.isEmpty()) {
+              images.push({
+                page: i,
+                dataURL: image.toDataURL()
+              });
+            }
+
+            // Clean up temp file
+            fs.unlinkSync(pageFile);
           }
-        } catch {}
-      }
+
+          if (images.length > 0) {
+            // Cache the result with new cache system
+            setCacheItem(cacheKey, images);
+            
+            const cacheSize = getCacheSize();
+            console.log(`✅ Cached ${images.length} page(s) | Total cache: ${cacheSize.toFixed(2)}MB`);
+            
+            callback(images);
+          } else {
+            callback(null);
+          }
+        } catch (e) {
+          console.error("❌ Failed to process PDF thumbnails:", e);
+          callback(null);
+          
+          // Try to clean up any remaining temp files
+          try {
+            for (let i = 1; i <= totalPages; i++) {
+              const pageFile = `${outputPrefix}-${i}.png`;
+              if (fs.existsSync(pageFile)) {
+                fs.unlinkSync(pageFile);
+              }
+            }
+          } catch {}
+        }
+      });
     });
   }
 
@@ -542,11 +712,40 @@
         justify-content: center;
         position: relative;
         padding: 20px;
-        cursor: pointer;
+        cursor: default;
       }
       
       .wa-file-preview-thumbnail-container.has-image {
         background: transparent;
+      }
+      
+      /* Scrollable container for multi-page PDFs */
+      .wa-file-preview-thumbnail-container.scrollable {
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: center;
+        overflow-y: auto;
+        overflow-x: hidden;
+        gap: 16px;
+        padding: 20px;
+      }
+      
+      /* Custom scrollbar for dark theme */
+      .wa-file-preview-thumbnail-container.scrollable::-webkit-scrollbar {
+        width: 8px;
+      }
+      
+      .wa-file-preview-thumbnail-container.scrollable::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      
+      .wa-file-preview-thumbnail-container.scrollable::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+      }
+      
+      .wa-file-preview-thumbnail-container.scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
       }
       
       .wa-file-preview-thumbnail {
@@ -558,6 +757,37 @@
         animation: zoomIn 0.3s ease-out;
         cursor: default;
         pointer-events: auto;
+      }
+      
+      /* For scrollable multi-page PDFs */
+      .wa-file-preview-thumbnail-container.scrollable .wa-file-preview-thumbnail {
+        max-width: 100%;
+        height: auto;
+        width: auto;
+        flex-shrink: 0;
+      }
+      
+      /* Page indicator for multi-page PDFs */
+      .wa-pdf-page-wrapper {
+        position: relative;
+        width: auto;
+        display: flex;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      
+      .wa-pdf-page-number {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        backdrop-filter: blur(4px);
+        z-index: 1;
       }
       
       @keyframes zoomIn {
@@ -726,8 +956,18 @@
           padding: 10px;
         }
         
+        .wa-file-preview-thumbnail-container.scrollable {
+          padding: 16px 10px;
+          gap: 12px;
+        }
+        
         .wa-file-preview-icon-large {
           font-size: 80px;
+        }
+        
+        .wa-pdf-page-number {
+          font-size: 11px;
+          padding: 3px 10px;
         }
       }
       
@@ -816,7 +1056,7 @@
         <div class="wa-file-preview-thumbnail-container" id="pdf-thumbnail-container">
           <div class="wa-file-preview-loading">
             <div class="wa-file-preview-spinner"></div>
-            <div class="wa-file-preview-loading-text">Loading preview...</div>
+            <div class="wa-file-preview-loading-text">Loading PDF preview...</div>
           </div>
         </div>
       `;
@@ -883,17 +1123,34 @@
 
     // Generate PDF thumbnail after overlay is added to DOM
     if (isPDF) {
-      generatePDFThumbnail(fileInfo.path, (dataURL) => {
+      generatePDFThumbnails(fileInfo.path, (images) => {
         const thumbnailContainer = document.getElementById(
           "pdf-thumbnail-container",
         );
         if (thumbnailContainer) {
-          if (dataURL) {
-            thumbnailContainer.className =
-              "wa-file-preview-thumbnail-container has-image";
-            thumbnailContainer.innerHTML = `
-              <img src="${dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name}">
-            `;
+          if (images && images.length > 0) {
+            // Check if single page or multiple pages
+            if (images.length === 1) {
+              // Single page - display centered
+              thumbnailContainer.className =
+                "wa-file-preview-thumbnail-container has-image";
+              thumbnailContainer.innerHTML = `
+                <img src="${images[0].dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name}">
+              `;
+            } else {
+              // Multiple pages - scrollable layout
+              thumbnailContainer.className =
+                "wa-file-preview-thumbnail-container has-image scrollable";
+              
+              const pagesHTML = images.map((img, index) => `
+                <div class="wa-pdf-page-wrapper">
+                  <img src="${img.dataURL}" class="wa-file-preview-thumbnail" alt="${fileInfo.name} - Page ${img.page}">
+                  <div class="wa-pdf-page-number">Page ${img.page} of ${images.length}</div>
+                </div>
+              `).join('');
+              
+              thumbnailContainer.innerHTML = pagesHTML;
+            }
           } else {
             // Fallback to icon if PDF generation failed
             thumbnailContainer.innerHTML = `
@@ -940,11 +1197,15 @@
     const thumbnailContainer = overlay.querySelector('.wa-file-preview-thumbnail-container');
     if (thumbnailContainer) {
       thumbnailContainer.onclick = (e) => {
-        // Only close if clicking the container itself, not the thumbnail image or icon
+        // Only close if clicking the container itself, not the thumbnail image, icon, or page wrapper
         if (e.target === thumbnailContainer || 
             e.target.classList.contains('wa-file-preview-thumbnail-container')) {
           overlay.remove();
           document.removeEventListener("keydown", handleKeyDown);
+        }
+        // Don't close if clicking on page number badge
+        if (e.target.classList.contains('wa-pdf-page-number')) {
+          e.stopPropagation();
         }
       };
     }
