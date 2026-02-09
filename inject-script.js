@@ -311,6 +311,47 @@
   // Clean expired cache every hour
   setInterval(cleanExpiredCache, 60 * 60 * 1000);
 
+  // ==========================================
+  // EARLY EVENT LISTENER REGISTRATION
+  // ==========================================
+  
+  // Register all event listeners early to avoid worker script errors
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializeFileMessages);
+  } else {
+    initializeFileMessages();
+  }
+  
+  // Initialize file message observers
+  function initializeFileMessages() {
+    const observer = new MutationObserver(() => {
+      const fileMessages = document.querySelectorAll(
+        '[data-icon="document"], [data-icon="audio-download"], [data-icon="video"]',
+      );
+
+      fileMessages.forEach((msg) => {
+        if (msg.classList.contains("wa-processed")) return;
+        msg.classList.add("wa-processed");
+
+        msg.style.cursor = "pointer";
+        msg.style.transition = "transform 0.2s";
+
+        msg.addEventListener("mouseenter", () => {
+          msg.style.transform = "scale(1.02)";
+        });
+
+        msg.addEventListener("mouseleave", () => {
+          msg.style.transform = "scale(1)";
+        });
+      });
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
   // HARD PATCH: FORCE WHATSAPP DOWNLOAD PATH
   (function forceWhatsAppDownloadPath() {
     if (!fs || !path || !os) return;
@@ -1395,47 +1436,6 @@
     document.body.appendChild(overlay);
 
     console.log("📋 Preview shown:", fileInfo.name);
-  }
-
-  // ==========================================
-  // 6. CUSTOM FILE ATTACHMENT
-  // ==========================================
-
-  // File message bubbles
-  function fileMessages() {
-    const observer = new MutationObserver(() => {
-      const fileMessages = document.querySelectorAll(
-        '[data-icon="document"], [data-icon="audio-download"], [data-icon="video"]',
-      );
-
-      fileMessages.forEach((msg) => {
-        if (msg.classList.contains("wa-processed")) return;
-        msg.classList.add("wa-processed");
-
-        msg.style.cursor = "pointer";
-        msg.style.transition = "transform 0.2s";
-
-        msg.addEventListener("mouseenter", () => {
-          msg.style.transform = "scale(1.02)";
-        });
-
-        msg.addEventListener("mouseleave", () => {
-          msg.style.transform = "scale(1)";
-        });
-      });
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-  }
-
-  // Wait for DOM to be ready
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", fileMessages);
-  } else {
-    fileMessages();
   }
 
   console.log("✅ WhatsApp Features Loaded Successfully");
